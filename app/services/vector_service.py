@@ -28,8 +28,9 @@ _CHUNK_OVERLAP = 200
 def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
     settings = get_settings()
     return GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
+        model=settings.EMBEDDING_MODEL_ID,
         google_api_key=settings.GOOGLE_API_KEY,
+        output_dimensionality=settings.EMBEDDING_OUTPUT_DIMENSIONALITY,
     )
 
 
@@ -58,7 +59,7 @@ def _ensure_collection_exists(client: QdrantClient) -> None:
         client.create_collection(
             collection_name=settings.COLLECTION_NAME,
             vectors_config=models.VectorParams(
-                size=768,
+                size=settings.EMBEDDING_OUTPUT_DIMENSIONALITY,
                 distance=models.Distance.COSINE,
             ),
         )

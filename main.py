@@ -49,12 +49,11 @@ async def on_startup() -> None:
 
 
 def main() -> None:
-    settings = get_settings()
     uvicorn.run(
         "main:app",
-        host=settings.APP_HOST,
-        port=settings.APP_PORT,
-        log_level=settings.LOG_LEVEL,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
         reload=False,
     )
 

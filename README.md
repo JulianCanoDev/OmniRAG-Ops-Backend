@@ -1,6 +1,6 @@
 # OmniRAG-Ops
 
-**High-performance RAG Ingestion Engine** with AI-powered metadata enrichment and a **control-plane** for remote Qdrant collection lifecycle management. Supports PDF, Word, Excel, and raw text.
+**High-performance RAG Ingestion Engine** with AI-powered metadata enrichment and a **control-plane** for remote Qdrant collection lifecycle management. Supports PDF, Word, Excel, PNG/JPG, and raw text. All embeddings use `gemini-embedding-2` (1536-dim, Cosine).
 
 ---
 
@@ -10,7 +10,7 @@
                   ┌─────────────────────────────────────────────┐
                   │              OmniRAG-Ops (stateless)        │
                   │                                             │
-Client ──► FastAPI ──► Gemini 2.5 Flash (metadata enrichment)   │
+ Client ──► FastAPI ──► Gemini 2.5 Flash (metadata enrichment)  │
                   │                                             │
                   └────► Qdrant Client (remote only, url+key)   │
                         │                                       │
@@ -31,7 +31,7 @@ database or uses path-based storage. All connections use `url=` + `api_key=` par
 | AI                | Gemini 2.5 Flash            | Summarisation, category & priority tags   |
 | Vector DB         | Qdrant (external, client-only) | Store & retrieve embeddings via URL+API key |
 | Indexing          | LangChain Indexing API         | Dedup content via SQLRecordManager          |
-| Embeddings        | Google text-embedding-004   | Generate vector representations           |
+| Embeddings        | Google gemini-embedding-2 | Generate vector representations (1536-dim) |
 | Document Loaders  | LangChain Community Loaders | Parse PDF, DOCX, XLSX into text           |
 | Config            | pydantic-settings           | Load env vars from `.env` file            |
 | Control Plane     | CollectionService            | Programmatic create / delete / list collections |
@@ -42,23 +42,24 @@ On startup, the application logs its operating mode — including whether authen
 
 ### Supported file formats
 
-| Format    | Extension(s)  | Loader                | Library       |
-|-----------|---------------|-----------------------|---------------|
-| PDF       | `.pdf`        | `PyPDFLoader`         | pypdf         |
-| Word      | `.docx`, `.doc` | `Docx2txtLoader`    | python-docx   |
-| Excel     | `.xlsx`, `.xls` | `_ExcelLoader` (custom, pandas-backed) | pandas + openpyxl |
-| Text      | —             | Inline ingestion      | —             |
+| Format    | Extension(s)      | Loader                | Library       |
+|-----------|-------------------|-----------------------|---------------|
+| PDF       | `.pdf`            | `PyPDFLoader`         | pypdf         |
+| Word      | `.docx`, `.doc`   | `Docx2txtLoader`      | python-docx   |
+| Excel     | `.xlsx`, `.xls`   | `_ExcelLoader` (custom, pandas-backed) | pandas + openpyxl |
+| Image     | `.png`, `.jpg`, `.jpeg` | `_ImageLoader` (custom, Pillow-backed) | Pillow        |
+| Text      | —                 | Inline ingestion      | —             |
 
 ### How ingestion works
 
-1. Content is received via `/api/v1/ingest` (raw text) or `/api/v1/ingest/file` (PDF / Word / Excel).
+1. Content is received via `/api/v1/ingest` (raw text) or `/api/v1/ingest/file` (PDF / Word / Excel / PNG / JPG).
 2. The route saves the uploaded file to a **temporary directory** (`tempfile.NamedTemporaryFile`) and passes the path to `ingestion.py`.
-3. `_get_loader(file_path, extension)` dispatches to the correct LangChain document loader (`PyPDFLoader`, `Docx2txtLoader`, or `_ExcelLoader`).
+3. `_get_loader(file_path, extension)` dispatches to the correct LangChain document loader (`PyPDFLoader`, `Docx2txtLoader`, `_ExcelLoader`, or `_ImageLoader`).
 4. A **Qdrant client** is created using `QdrantClient(url=..., api_key=...)` — it connects exclusively to an externally-running Qdrant instance (Docker, Cloud, or separate VPS). No local database is ever created.
 5. Extracted text is sent to **Gemini 2.5 Flash** for metadata enrichment (summary, category, priority).
 6. Enriched metadata (document_id, source, summary, category, priority) is attached to every chunk.
 7. Content is split into chunks using `RecursiveCharacterTextSplitter`.
-8. Chunks are indexed into **Qdrant** using LangChain's `index()` API, which leverages a **SQLRecordManager** (backed by local SQLite `record_manager.db`) to skip duplicates by source ID.
+8. Chunks are embedded with `gemini-embedding-2` (1536-dim, Cosine) and indexed into **Qdrant** using LangChain's `index()` API, which leverages a **SQLRecordManager** (backed by local SQLite `record_manager.db`) to skip duplicates by source ID.
 9. A response is returned with the document ID, chunk count, and enriched metadata.
 
 ---
@@ -105,23 +106,11 @@ The compose file builds the `api` service from the local Dockerfile and exposes 
 | `QDRANT_URL`       | `http://localhost:6333`  | No       | Qdrant server URL                     |
 | `QDRANT_API_KEY`   | —                        | No       | Qdrant API key (if using Cloud)       |
 | `COLLECTION_NAME`  | `omnirarg_docs`          | No       | Qdrant collection name                |
-| `GEMINI_MODEL`     | `gemini-2.5-flash`       | No       | Gemini model ID                       |
-| `APP_HOST`         | `0.0.0.0`                | No       | FastAPI bind address                  |
-| `APP_PORT`         | `8000`                   | No       | FastAPI port                          |
-| `LOG_LEVEL`        | `info`                   | No       | Logging level                         |
+| `GEMINI_MODEL`     | `gemini-2.5-flash`       | No       | Gemini LLM for metadata enrichment    |
+| `EMBEDDING_MODEL_ID` | `models/gemini-embedding-2` | No    | Embedding model ID                    |
+| `EMBEDDING_OUTPUT_DIMENSIONALITY` | `1536`         | No       | Output vector dimensions (Matryoshka) |
 
-Settings are managed via **pydantic-settings** (`app/core/config.py`) which reads from a `.env` file at the project root. All Qdrant parameters are loaded as `url=` and `api_key=` — no local paths or embedded databases. A template is provided at `.env.example`.
-
-### Run with Docker
-
-```bash
-docker build -t omnirarg-ops .
-docker run -d \
-  -p 8000:8000 \
-  -e GOOGLE_API_KEY="your-key" \
-  -e QDRANT_URL="http://host.docker.internal:6333" \
-  omnirarg-ops
-```
+Settings are managed via **pydantic-settings** (`app/core/config.py`) which reads from a `.env` file at the project root. A template is provided at `.env.example`. All embedding parameters (`EMBEDDING_MODEL_ID`, `EMBEDDING_OUTPUT_DIMENSIONALITY`) are configurable without code changes — the Matryoshka output dimensionality can be tuned between 256 and 3072.
 
 ---
 
@@ -149,6 +138,7 @@ Upload a file. Supported formats:
 | PDF     | `.pdf`                    |
 | Word    | `.docx`, `.doc`           |
 | Excel   | `.xlsx`, `.xls`           |
+| Image   | `.png`, `.jpg`, `.jpeg`   |
 
 Send as `multipart/form-data` with field name `file`.
 
@@ -350,7 +340,7 @@ Create a new Qdrant collection. Returns **409 Conflict** if a collection with th
 ```json
 {
   "name": "my_collection",
-  "vector_size": 768,
+  "vector_size": 1536,
   "distance": "Cosine"
 }
 ```
@@ -358,7 +348,7 @@ Create a new Qdrant collection. Returns **409 Conflict** if a collection with th
 | Field        | Type   | Default  | Description                                         |
 |--------------|--------|----------|-----------------------------------------------------|
 | `name`       | string | —        | Collection name (required)                          |
-| `vector_size`| int    | `768`    | Embedding dimension (768 for Gemini text-embedding-004) |
+| `vector_size`| int    | `1536`   | Embedding dimension (1536 for gemini-embedding-2)  |
 | `distance`   | string | `Cosine` | Distance metric: `Cosine`, `Dot`, or `Euclid`       |
 
 ```json

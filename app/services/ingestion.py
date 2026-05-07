@@ -13,6 +13,7 @@ from langchain_community.document_loaders import (
 )
 from langchain_core.documents import Document
 from langchain_core.document_loaders import BaseLoader
+from PIL import Image
 from qdrant_client import QdrantClient
 
 from app.core.config import get_settings
@@ -21,6 +22,8 @@ from app.services.gemini_service import enrich_metadata
 from app.services.vector_service import index_documents
 
 logger = logging.getLogger(__name__)
+
+_SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".png", ".jpg", ".jpeg"}
 
 
 class _ExcelLoader(BaseLoader):
@@ -43,6 +46,32 @@ class _ExcelLoader(BaseLoader):
         return docs
 
 
+class _ImageLoader(BaseLoader):
+    def __init__(self, file_path: str) -> None:
+        self.file_path = file_path
+
+    def load(self) -> list[Document]:
+        img = Image.open(self.file_path)
+        description = (
+            f"Image file: {Path(self.file_path).name} | "
+            f"Format: {img.format} | "
+            f"Dimensions: {img.width}x{img.height} | "
+            f"Mode: {img.mode}"
+        )
+        return [
+            Document(
+                page_content=description,
+                metadata={
+                    "file_name": Path(self.file_path).name,
+                    "file_type": f"image/{img.format.lower()}" if img.format else "image/unknown",
+                    "width": img.width,
+                    "height": img.height,
+                    "mode": img.mode,
+                },
+            )
+        ]
+
+
 def _build_qdrant_client() -> QdrantClient:
     settings = get_settings()
     logger.debug("Connecting to remote Qdrant at %s", settings.QDRANT_URL)
@@ -60,6 +89,8 @@ def _get_loader(file_path: str, file_extension: str) -> BaseLoader:
         return Docx2txtLoader(file_path)
     if ext in (".xlsx", ".xls"):
         return _ExcelLoader(file_path)
+    if ext in (".png", ".jpg", ".jpeg"):
+        return _ImageLoader(file_path)
     raise ValueError(f"Unsupported file extension: {ext}")
 
 

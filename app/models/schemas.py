@@ -113,9 +113,9 @@ class CollectionCreateRequest(BaseModel):
         ..., min_length=1, description="Name of the Qdrant collection"
     )
     vector_size: int = Field(
-        default=768,
+        default=1536,
         ge=1,
-        description="Dimensionality of the embedding vectors (768 for Gemini text-embedding-004)",
+        description="Dimensionality of the embedding vectors (1536 for gemini-embedding-2)",
     )
     distance: str = Field(
         default="Cosine",

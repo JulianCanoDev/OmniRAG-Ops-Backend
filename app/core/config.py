@@ -12,9 +12,9 @@ class Settings(BaseSettings):
     COLLECTION_NAME: str = "omnirarg_docs"
 
     GEMINI_MODEL: str = "gemini-2.5-flash"
-    APP_HOST: str = "0.0.0.0"
-    APP_PORT: int = 8000
-    LOG_LEVEL: str = "info"
+
+    EMBEDDING_MODEL_ID: str = "models/gemini-embedding-2"
+    EMBEDDING_OUTPUT_DIMENSIONALITY: int = 1536
 
     model_config = SettingsConfigDict(
         env_file=".env",

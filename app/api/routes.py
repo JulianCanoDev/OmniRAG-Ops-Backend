@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".doc", ".xlsx", ".xls"}
+_SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".png", ".jpg", ".jpeg"}
 
 
 @router.post(

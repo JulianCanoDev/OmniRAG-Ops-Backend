@@ -16,7 +16,7 @@ _DISTANCE_MAP: dict[str, models.Distance] = {
     "Euclid": models.Distance.EUCLID,
 }
 
-_GEMINI_EMBEDDING_SIZE = 768
+_GEMINI_EMBEDDING_SIZE = 1536
 
 
 class CollectionService:
