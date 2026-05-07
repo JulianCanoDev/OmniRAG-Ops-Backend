@@ -1,6 +1,6 @@
 # OmniRAG-Ops
 
-**High-performance RAG Ingestion Engine** with AI-powered metadata enrichment.
+**High-performance RAG Ingestion Engine** with AI-powered metadata enrichment. Supports PDF, Word, Excel, and raw text.
 
 ---
 
@@ -14,23 +14,36 @@ Client ──► FastAPI ──► Gemini (metadata enrichment)
 
 ### Key components
 
-| Layer       | Technology                | Role                                    |
-|-------------|---------------------------|-----------------------------------------|
-| API         | FastAPI + Uvicorn         | HTTP interface for ingestion & health   |
-| AI          | Gemini 2.5 Flash          | Summarisation, category & priority tags |
-| Vector DB   | Qdrant (external)         | Store & retrieve embeddings             |
-| Indexing    | LangChain Indexing API    | Dedup content via SQLRecordManager      |
-| Embeddings  | Google text-embedding-004 | Generate vector representations         |
-| Config      | pydantic-settings         | Load env vars from `.env` file          |
+| Layer             | Technology                  | Role                                      |
+|-------------------|-----------------------------|-------------------------------------------|
+| API               | FastAPI + Uvicorn           | HTTP interface for ingestion & health     |
+| AI                | Gemini 2.5 Flash            | Summarisation, category & priority tags   |
+| Vector DB         | Qdrant (external)           | Store & retrieve embeddings               |
+| Indexing          | LangChain Indexing API      | Dedup content via SQLRecordManager        |
+| Embeddings        | Google text-embedding-004   | Generate vector representations           |
+| Document Loaders  | LangChain Community Loaders | Parse PDF, DOCX, XLSX into text           |
+| Config            | pydantic-settings           | Load env vars from `.env` file            |
+
+### Supported file formats
+
+| Format    | Extension(s)  | Loader                | Library       |
+|-----------|---------------|-----------------------|---------------|
+| PDF       | `.pdf`        | `PyPDFLoader`         | pypdf         |
+| Word      | `.docx`, `.doc` | `Docx2txtLoader`    | python-docx   |
+| Excel     | `.xlsx`, `.xls` | `_ExcelLoader` (custom, pandas-backed) | pandas + openpyxl |
+| Text      | —             | Inline ingestion      | —             |
 
 ### How ingestion works
 
-1. Content is received via `/api/v1/ingest` (text) or `/api/v1/ingest/file` (PDF).
-2. A **Qdrant client** is created in `app/services/ingestion.py` — it connects to an externally-running Qdrant instance (no embedded DB).
-3. Content is sent to **Gemini 2.5 Flash** for metadata enrichment (summary, category, priority).
-4. Content is split into chunks using `RecursiveCharacterTextSplitter`.
-5. Chunks are indexed into **Qdrant** using LangChain's `index()` API, which leverages a **SQLRecordManager** (backed by local SQLite `record_manager.db`) to skip duplicates by source ID.
-6. A response is returned with the document ID and enriched metadata.
+1. Content is received via `/api/v1/ingest` (raw text) or `/api/v1/ingest/file` (PDF / Word / Excel).
+2. The route saves the uploaded file to a **temporary directory** (`tempfile.NamedTemporaryFile`) and passes the path to `ingestion.py`.
+3. `_get_loader(file_path, extension)` dispatches to the correct LangChain document loader (`PyPDFLoader`, `Docx2txtLoader`, or `_ExcelLoader`).
+4. A **Qdrant client** is created in `app/services/ingestion.py` — it connects to an externally-running Qdrant instance (no embedded DB).
+5. Extracted text is sent to **Gemini 2.5 Flash** for metadata enrichment (summary, category, priority).
+6. Enriched metadata (document_id, source, summary, category, priority) is attached to every chunk.
+7. Content is split into chunks using `RecursiveCharacterTextSplitter`.
+8. Chunks are indexed into **Qdrant** using LangChain's `index()` API, which leverages a **SQLRecordManager** (backed by local SQLite `record_manager.db`) to skip duplicates by source ID.
+9. A response is returned with the document ID, chunk count, and enriched metadata.
 
 ---
 
@@ -103,7 +116,15 @@ Ingest raw text.
 
 ### `POST /api/v1/ingest/file`
 
-Upload a PDF file (multipart/form-data, field name: `file`).
+Upload a file. Supported formats:
+
+| Format  | Extensions                |
+|---------|---------------------------|
+| PDF     | `.pdf`                    |
+| Word    | `.docx`, `.doc`           |
+| Excel   | `.xlsx`, `.xls`           |
+
+Send as `multipart/form-data` with field name `file`.
 
 ### `GET /api/v1/health`
 
@@ -143,7 +164,7 @@ OmniRAG-Ops/
     │   └── schemas.py       # Pydantic models
     └── services/
         ├── __init__.py
-        ├── ingestion.py         # Qdrant client init + orchestration
+        ├── ingestion.py         # _get_loader + Qdrant client + orchestration
         ├── gemini_service.py    # Gemini LLM integration
         └── vector_service.py    # Qdrant vector store + indexing
 ```

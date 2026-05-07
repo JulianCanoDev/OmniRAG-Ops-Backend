@@ -16,7 +16,7 @@ logging.basicConfig(
 
 app = FastAPI(
     title="OmniRAG-Ops",
-    description="High-performance RAG Ingestion Engine with Gemini metadata enrichment",
+    description="High-performance RAG Ingestion Engine — supports PDF, Word, Excel, and raw text with Gemini metadata enrichment",
     version="1.0.0",
 )
 
@@ -33,7 +33,7 @@ app.include_router(router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    logging.info("OmniRAG-Ops startup complete")
+    logging.info("OmniRAG-Ops startup complete — multi-format ingestion ready")
 
 
 def main() -> None:

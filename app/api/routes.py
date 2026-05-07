@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, UploadFile, HTTPException
@@ -19,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".doc", ".xlsx", ".xls"}
+
 
 @router.post(
     "/ingest",
@@ -32,16 +36,27 @@ async def ingest_text(payload: IngestionRequest) -> IngestionResponse:
 @router.post(
     "/ingest/file",
     response_model=IngestionResponse,
-    summary="Upload and ingest a PDF file",
+    summary="Upload and ingest a PDF, Word, or Excel file",
 )
 async def ingest_file(file: UploadFile = File(...)) -> IngestionResponse:
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in _SUPPORTED_EXTENSIONS:
         raise HTTPException(
-            status_code=400, detail="Only PDF files are accepted"
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Accepted: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}",
         )
+
     raw_bytes: bytes = await file.read()
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(raw_bytes)
+        tmp_path = tmp.name
+
     return await process_ingestion(
-        file_bytes=raw_bytes, filename=file.filename
+        file_path=tmp_path, filename=file.filename
     )
 
 
