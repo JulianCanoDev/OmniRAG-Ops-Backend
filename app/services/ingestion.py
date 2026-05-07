@@ -22,8 +22,6 @@ from app.services.vector_service import index_documents
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".doc", ".xlsx", ".xls"}
-
 
 class _ExcelLoader(BaseLoader):
     def __init__(self, file_path: str) -> None:
@@ -47,10 +45,10 @@ class _ExcelLoader(BaseLoader):
 
 def _build_qdrant_client() -> QdrantClient:
     settings = get_settings()
-    kwargs: dict[str, Any] = {"location": settings.QDRANT_URL}
-    if settings.QDRANT_API_KEY:
-        kwargs["api_key"] = settings.QDRANT_API_KEY
-    return QdrantClient(**kwargs)
+    return QdrantClient(
+        url=settings.QDRANT_URL,
+        api_key=settings.QDRANT_API_KEY or None,
+    )
 
 
 def _get_loader(file_path: str, file_extension: str) -> BaseLoader:

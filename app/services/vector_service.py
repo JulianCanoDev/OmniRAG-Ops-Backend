@@ -28,10 +28,10 @@ def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
 
 def get_qdrant_client() -> QdrantClient:
     settings = get_settings()
-    kwargs: dict[str, Any] = {"location": settings.QDRANT_URL}
-    if settings.QDRANT_API_KEY:
-        kwargs["api_key"] = settings.QDRANT_API_KEY
-    return QdrantClient(**kwargs)
+    return QdrantClient(
+        url=settings.QDRANT_URL,
+        api_key=settings.QDRANT_API_KEY or None,
+    )
 
 
 def _get_vector_store(client: QdrantClient) -> QdrantVectorStore:

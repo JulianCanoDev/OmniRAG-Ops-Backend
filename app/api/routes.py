@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Query
+from fastapi import APIRouter, File, UploadFile, HTTPException, Query, Response
 
 from app.models.schemas import (
     IngestionRequest,
@@ -165,14 +165,16 @@ async def stats() -> StatsResponse:
     response_model=HealthResponse,
     summary="Health check for all upstream services",
 )
-async def health() -> dict[str, Any]:
+async def health(response: Response) -> dict[str, Any]:
     gemini_ok, gemini_msg = await check_gemini()
     qdrant_ok, qdrant_msg = await check_qdrant()
 
-    overall = "healthy" if gemini_ok and qdrant_ok else "degraded"
+    all_ok = gemini_ok and qdrant_ok
+    if not all_ok:
+        response.status_code = 503
 
     return HealthResponse(
-        status=overall,
+        status="healthy" if all_ok else "unavailable",
         gemini=HealthComponent(
             status="ok" if gemini_ok else "unreachable", detail=gemini_msg
         ),
