@@ -59,7 +59,7 @@ Client ──► FastAPI ──► Gemini (metadata enrichment)
 
 ```bash
 # 1. Clone and enter the project
-git clone https://github.com/JulianCanoDev/OmniRAG-Ops.git && cd OmniRAG-Ops
+git clone https://github.com/JulianCanoDev/OmniRAG-Ops-Backend && cd OmniRAG-Ops
 
 # 2. Configure environment
 cp .env.example .env
