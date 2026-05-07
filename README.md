@@ -103,7 +103,9 @@ docker run -d \
 
 ## API reference
 
-### `POST /api/v1/ingest`
+### Ingestion
+
+#### `POST /api/v1/ingest`
 
 Ingest raw text.
 
@@ -114,7 +116,7 @@ Ingest raw text.
 }
 ```
 
-### `POST /api/v1/ingest/file`
+#### `POST /api/v1/ingest/file`
 
 Upload a file. Supported formats:
 
@@ -126,7 +128,154 @@ Upload a file. Supported formats:
 
 Send as `multipart/form-data` with field name `file`.
 
-### `GET /api/v1/health`
+---
+
+### Document Management
+
+#### `GET /api/v1/documents`
+
+List all ingested documents with pagination.
+
+| Query param | Default | Description                |
+|-------------|---------|----------------------------|
+| `skip`      | `0`     | Number of items to skip    |
+| `limit`     | `20`    | Max items to return (≤200) |
+
+```json
+{
+  "total": 42,
+  "skip": 0,
+  "limit": 20,
+  "items": [
+    {
+      "document_id": "uuid-string",
+      "source": "report.pdf",
+      "summary": "Financial analysis of Q3 earnings...",
+      "category": "finance",
+      "priority": "high",
+      "chunk_count": 12
+    }
+  ]
+}
+```
+
+#### `GET /api/v1/documents/{doc_id}`
+
+Get detailed information about a specific document by its UUID.
+
+```json
+{
+  "document_id": "uuid-string",
+  "source": "report.pdf",
+  "summary": "Financial analysis of Q3 earnings...",
+  "category": "finance",
+  "priority": "high",
+  "chunk_count": 12
+}
+```
+
+Returns **404** if the document is not found.
+
+#### `DELETE /api/v1/documents/{source_id}`
+
+Deep delete — removes all chunks with the given `source_id` (filename) from both Qdrant and the SQLRecordManager, preventing ghost records.
+
+```json
+{
+  "status": "deleted",
+  "source_id": "report.pdf",
+  "points_removed": 12
+}
+```
+
+Returns **404** if no points match the source.
+
+#### `PATCH /api/v1/documents/{source_id}/metadata`
+
+Override Gemini-generated metadata tags for every chunk sharing the same source.
+
+```json
+{
+  "category": "legal",
+  "priority": "high"
+}
+```
+
+```json
+{
+  "status": "updated",
+  "source_id": "report.pdf",
+  "points_affected": 12,
+  "updated_fields": ["category", "priority"]
+}
+```
+
+Returns **404** if no points match the source, **400** if no fields are provided.
+
+---
+
+### Search & Query
+
+#### `POST /api/v1/query`
+
+Semantic search over ingested documents. Embeds the question and returns the top K most relevant chunks with similarity scores.
+
+```json
+{
+  "question": "What were the Q3 earnings?",
+  "top_k": 5
+}
+```
+
+```json
+{
+  "results": [
+    {
+      "chunk_content": "Revenue increased by 15%...",
+      "score": 0.89,
+      "metadata": {
+        "document_id": "uuid",
+        "source": "report.pdf",
+        "summary": "...",
+        "category": "finance",
+        "priority": "high"
+      }
+    }
+  ]
+}
+```
+
+---
+
+### Statistics
+
+#### `GET /api/v1/stats`
+
+Aggregated statistics about the vector store.
+
+```json
+{
+  "total_documents": 42,
+  "total_chunks": 312,
+  "category_distribution": {
+    "finance": 18,
+    "technology": 14,
+    "healthcare": 7,
+    "unknown": 3
+  },
+  "priority_distribution": {
+    "medium": 20,
+    "high": 12,
+    "low": 10
+  }
+}
+```
+
+---
+
+### Health
+
+#### `GET /api/v1/health`
 
 Returns connectivity status for Gemini and Qdrant.
 
@@ -166,7 +315,8 @@ OmniRAG-Ops/
         ├── __init__.py
         ├── ingestion.py         # _get_loader + Qdrant client + orchestration
         ├── gemini_service.py    # Gemini LLM integration
-        └── vector_service.py    # Qdrant vector store + indexing
+        ├── vector_service.py    # Qdrant vector store + indexing + low-level ops
+        └── management.py        # CRUD, query & stats business logic
 ```
 
 ---

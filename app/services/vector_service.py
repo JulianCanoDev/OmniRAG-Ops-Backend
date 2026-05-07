@@ -26,6 +26,14 @@ def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
     )
 
 
+def get_qdrant_client() -> QdrantClient:
+    settings = get_settings()
+    kwargs: dict[str, Any] = {"location": settings.QDRANT_URL}
+    if settings.QDRANT_API_KEY:
+        kwargs["api_key"] = settings.QDRANT_API_KEY
+    return QdrantClient(**kwargs)
+
+
 def _get_vector_store(client: QdrantClient) -> QdrantVectorStore:
     settings = get_settings()
     return QdrantVectorStore(
@@ -49,7 +57,7 @@ def _ensure_collection_exists(client: QdrantClient) -> None:
         logger.info("Created Qdrant collection '%s'", settings.COLLECTION_NAME)
 
 
-def _get_record_manager() -> SQLRecordManager:
+def get_record_manager() -> SQLRecordManager:
     settings = get_settings()
     namespace = f"qdrant/{settings.COLLECTION_NAME}"
     record_manager = SQLRecordManager(
@@ -64,7 +72,7 @@ def index_documents(
 ) -> dict[str, Any]:
     _ensure_collection_exists(client)
     vector_store = _get_vector_store(client)
-    record_manager = _get_record_manager()
+    record_manager = get_record_manager()
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=_CHUNK_SIZE,
         chunk_overlap=_CHUNK_OVERLAP,
@@ -83,13 +91,110 @@ def index_documents(
     }
 
 
+def delete_by_source(source_id: str, client: QdrantClient) -> int:
+    settings = get_settings()
+    points, _ = client.scroll(
+        collection_name=settings.COLLECTION_NAME,
+        scroll_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="source", match=models.MatchValue(value=source_id)
+                )
+            ]
+        ),
+        limit=10000,
+        with_payload=False,
+        with_vectors=False,
+    )
+    if not points:
+        return 0
+    point_ids = [p.id for p in points]
+    client.delete(
+        collection_name=settings.COLLECTION_NAME,
+        points_selector=models.PointIdsList(points=point_ids),
+    )
+    record_manager = get_record_manager()
+    record_manager.delete([source_id])
+    return len(point_ids)
+
+
+def search_similar(
+    query: str, top_k: int, client: QdrantClient
+) -> list[tuple[Document, float]]:
+    vector_store = _get_vector_store(client)
+    results = vector_store.similarity_search_with_relevance_scores(
+        query, k=top_k
+    )
+    return results
+
+
+def scroll_points_paginated(
+    client: QdrantClient,
+    limit: int,
+    offset: int | None = None,
+) -> tuple[list[models.Record], int | None]:
+    settings = get_settings()
+    points, next_offset = client.scroll(
+        collection_name=settings.COLLECTION_NAME,
+        limit=limit,
+        offset=offset,
+        with_payload=True,
+        with_vectors=False,
+    )
+    return points, next_offset
+
+
+def scroll_all_points(
+    client: QdrantClient,
+) -> list[models.Record]:
+    settings = get_settings()
+    all_points: list[models.Record] = []
+    next_offset: int | None = None
+    while True:
+        batch, next_offset = client.scroll(
+            collection_name=settings.COLLECTION_NAME,
+            limit=1000,
+            offset=next_offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        all_points.extend(batch)
+        if next_offset is None:
+            break
+    return all_points
+
+
+def update_payload_by_source(
+    source_id: str, payload: dict[str, Any], client: QdrantClient
+) -> int:
+    settings = get_settings()
+    points, _ = client.scroll(
+        collection_name=settings.COLLECTION_NAME,
+        scroll_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="source", match=models.MatchValue(value=source_id)
+                )
+            ]
+        ),
+        limit=10000,
+        with_payload=False,
+        with_vectors=False,
+    )
+    if not points:
+        return 0
+    point_ids = [p.id for p in points]
+    client.set_payload(
+        collection_name=settings.COLLECTION_NAME,
+        payload=payload,
+        points=point_ids,
+    )
+    return len(point_ids)
+
+
 async def check_connectivity() -> tuple[bool, str]:
     try:
-        settings = get_settings()
-        kwargs: dict[str, Any] = {"location": settings.QDRANT_URL}
-        if settings.QDRANT_API_KEY:
-            kwargs["api_key"] = settings.QDRANT_API_KEY
-        client = QdrantClient(**kwargs)
+        client = get_qdrant_client()
         client.get_collections()
         return True, "reachable"
     except Exception as exc:

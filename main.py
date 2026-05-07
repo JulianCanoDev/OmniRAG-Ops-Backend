@@ -16,7 +16,7 @@ logging.basicConfig(
 
 app = FastAPI(
     title="OmniRAG-Ops",
-    description="High-performance RAG Ingestion Engine — supports PDF, Word, Excel, and raw text with Gemini metadata enrichment",
+    description="High-performance RAG Ingestion Engine — ingest, query, manage, and monitor documents with Gemini metadata enrichment and Qdrant vector storage",
     version="1.0.0",
 )
 
