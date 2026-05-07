@@ -12,14 +12,17 @@ Client ──► FastAPI ──► Gemini (metadata enrichment)
                 └────► Qdrant (vector store, dedup via RecordManager)
 ```
 
+Qdrant is treated as a **purely external service** — the application never initializes a local
+database or uses path-based storage. All connections use `url=` + `api_key=` parameters.
+
 ### Key components
 
 | Layer             | Technology                  | Role                                      |
 |-------------------|-----------------------------|-------------------------------------------|
 | API               | FastAPI + Uvicorn           | HTTP interface for ingestion & health     |
 | AI                | Gemini 2.5 Flash            | Summarisation, category & priority tags   |
-| Vector DB         | Qdrant (external)           | Store & retrieve embeddings               |
-| Indexing          | LangChain Indexing API      | Dedup content via SQLRecordManager        |
+| Vector DB         | Qdrant (external, client-only) | Store & retrieve embeddings via URL+API key |
+| Indexing          | LangChain Indexing API         | Dedup content via SQLRecordManager          |
 | Embeddings        | Google text-embedding-004   | Generate vector representations           |
 | Document Loaders  | LangChain Community Loaders | Parse PDF, DOCX, XLSX into text           |
 | Config            | pydantic-settings           | Load env vars from `.env` file            |
@@ -38,7 +41,7 @@ Client ──► FastAPI ──► Gemini (metadata enrichment)
 1. Content is received via `/api/v1/ingest` (raw text) or `/api/v1/ingest/file` (PDF / Word / Excel).
 2. The route saves the uploaded file to a **temporary directory** (`tempfile.NamedTemporaryFile`) and passes the path to `ingestion.py`.
 3. `_get_loader(file_path, extension)` dispatches to the correct LangChain document loader (`PyPDFLoader`, `Docx2txtLoader`, or `_ExcelLoader`).
-4. A **Qdrant client** is created in `app/services/ingestion.py` — it connects to an externally-running Qdrant instance (no embedded DB).
+4. A **Qdrant client** is created using `QdrantClient(url=..., api_key=...)` — it connects exclusively to an externally-running Qdrant instance (Docker, Cloud, or separate VPS). No local database is ever created.
 5. Extracted text is sent to **Gemini 2.5 Flash** for metadata enrichment (summary, category, priority).
 6. Enriched metadata (document_id, source, summary, category, priority) is attached to every chunk.
 7. Content is split into chunks using `RecursiveCharacterTextSplitter`.
@@ -86,7 +89,7 @@ python main.py
 | `APP_PORT`         | `8000`                   | No       | FastAPI port                          |
 | `LOG_LEVEL`        | `info`                   | No       | Logging level                         |
 
-Settings are managed via **pydantic-settings** (`app/core/config.py`) which reads from a `.env` file at the project root. A template is provided at `.env.example`.
+Settings are managed via **pydantic-settings** (`app/core/config.py`) which reads from a `.env` file at the project root. All Qdrant parameters are loaded as `url=` and `api_key=` — no local paths or embedded databases. A template is provided at `.env.example`.
 
 ### Run with Docker
 
@@ -277,14 +280,23 @@ Aggregated statistics about the vector store.
 
 #### `GET /api/v1/health`
 
-Returns connectivity status for Gemini and Qdrant.
+Returns connectivity status for Gemini and Qdrant. Returns **503 Service Unavailable** if either service is unreachable.
 
 ```json
+// HTTP 200 — all services reachable
 {
   "status": "healthy",
   "timestamp": "2026-01-01T00:00:00Z",
   "gemini": { "status": "ok", "detail": "reachable" },
   "qdrant": { "status": "ok", "detail": "reachable" }
+}
+
+// HTTP 503 — one or more services down
+{
+  "status": "unavailable",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "gemini": { "status": "ok", "detail": "reachable" },
+  "qdrant": { "status": "unreachable", "detail": "Connection refused" }
 }
 ```
 
