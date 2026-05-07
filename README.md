@@ -435,4 +435,4 @@ Always copy `.env.example` to `.env` and fill in your real values — never comm
 
 ## License
 
-MIT
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
