@@ -5,7 +5,6 @@ from typing import Any
 
 from qdrant_client import QdrantClient, models
 from langchain_qdrant import QdrantVectorStore
-from langchain_core.vectorstores import VectorStore
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.indexes import SQLRecordManager, index
 from langchain_core.documents import Document
@@ -19,31 +18,19 @@ _CHUNK_SIZE = 1000
 _CHUNK_OVERLAP = 200
 
 
-def _get_qdrant_client() -> QdrantClient:
-    settings = get_settings()
-    kwargs: dict[str, Any] = {"location": settings.qdrant_url}
-    if settings.qdrant_api_key:
-        kwargs["api_key"] = settings.qdrant_api_key
-    return QdrantClient(**kwargs)
-
-
 def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
     settings = get_settings()
     return GoogleGenerativeAIEmbeddings(
         model="models/text-embedding-004",
-        google_api_key=settings.gemini_api_key,
+        google_api_key=settings.GOOGLE_API_KEY,
     )
 
 
-def _get_vector_store(
-    client: QdrantClient | None = None,
-) -> QdrantVectorStore:
+def _get_vector_store(client: QdrantClient) -> QdrantVectorStore:
     settings = get_settings()
-    if client is None:
-        client = _get_qdrant_client()
     return QdrantVectorStore(
         client=client,
-        collection_name=settings.qdrant_collection,
+        collection_name=settings.COLLECTION_NAME,
         embedding=_get_embeddings(),
     )
 
@@ -51,29 +38,30 @@ def _get_vector_store(
 def _ensure_collection_exists(client: QdrantClient) -> None:
     settings = get_settings()
     collections = client.get_collections().collections
-    if not any(c.name == settings.qdrant_collection for c in collections):
+    if not any(c.name == settings.COLLECTION_NAME for c in collections):
         client.create_collection(
-            collection_name=settings.qdrant_collection,
+            collection_name=settings.COLLECTION_NAME,
             vectors_config=models.VectorParams(
-                size=settings.vector_dimension,
+                size=768,
                 distance=models.Distance.COSINE,
             ),
         )
-        logger.info("Created Qdrant collection '%s'", settings.qdrant_collection)
+        logger.info("Created Qdrant collection '%s'", settings.COLLECTION_NAME)
 
 
 def _get_record_manager() -> SQLRecordManager:
     settings = get_settings()
-    namespace = f"qdrant/{settings.qdrant_collection}"
+    namespace = f"qdrant/{settings.COLLECTION_NAME}"
     record_manager = SQLRecordManager(
-        namespace=namespace, db_url="sqlite:///record_manager_cache.sql"
+        namespace=namespace, db_url="sqlite:///record_manager.db"
     )
     record_manager.create_schema()
     return record_manager
 
 
-def index_documents(docs: list[Document]) -> dict[str, Any]:
-    client = _get_qdrant_client()
+def index_documents(
+    docs: list[Document], client: QdrantClient
+) -> dict[str, Any]:
     _ensure_collection_exists(client)
     vector_store = _get_vector_store(client)
     record_manager = _get_record_manager()
@@ -97,7 +85,11 @@ def index_documents(docs: list[Document]) -> dict[str, Any]:
 
 async def check_connectivity() -> tuple[bool, str]:
     try:
-        client = _get_qdrant_client()
+        settings = get_settings()
+        kwargs: dict[str, Any] = {"location": settings.QDRANT_URL}
+        if settings.QDRANT_API_KEY:
+            kwargs["api_key"] = settings.QDRANT_API_KEY
+        client = QdrantClient(**kwargs)
         client.get_collections()
         return True, "reachable"
     except Exception as exc:

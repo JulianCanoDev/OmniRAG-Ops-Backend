@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
@@ -31,8 +30,8 @@ Content:
 def _build_llm() -> ChatGoogleGenerativeAI:
     settings = get_settings()
     return ChatGoogleGenerativeAI(
-        model=settings.gemini_model,
-        google_api_key=settings.gemini_api_key,
+        model=settings.GEMINI_MODEL,
+        google_api_key=settings.GOOGLE_API_KEY,
         temperature=0.1,
     )
 

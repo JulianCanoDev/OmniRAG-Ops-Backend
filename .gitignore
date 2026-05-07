@@ -18,13 +18,13 @@ env/
 .DS_Store
 Thumbs.db
 
-# Project
-record_manager_cache.sql
+# SQLite databases (RecordManager)
+record_manager.db
 *.db
 *.sqlite
 .sqlite3
 
-# Environment
+# Environment secrets
 .env
 .env.local
 .env.production

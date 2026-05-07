@@ -1,44 +1,26 @@
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
 from functools import lru_cache
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-@dataclass(frozen=True)
-class Settings:
-    gemini_api_key: str = field(
-        default_factory=lambda: os.getenv("GEMINI_API_KEY", "")
-    )
-    gemini_model: str = field(
-        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    )
-    qdrant_url: str = field(
-        default_factory=lambda: os.getenv("QDRANT_URL", "http://localhost:6333")
-    )
-    qdrant_api_key: str = field(
-        default_factory=lambda: os.getenv("QDRANT_API_KEY", "")
-    )
-    qdrant_collection: str = field(
-        default_factory=lambda: os.getenv("QDRANT_COLLECTION", "omnirarg_docs")
-    )
-    vector_dimension: int = 768
-    app_host: str = field(
-        default_factory=lambda: os.getenv("APP_HOST", "0.0.0.0")
-    )
-    app_port: int = int(os.getenv("APP_PORT", "8000"))
-    log_level: str = field(
-        default_factory=lambda: os.getenv("LOG_LEVEL", "info")
-    )
 
-    def validate(self) -> None:
-        missing: list[str] = []
-        if not self.gemini_api_key:
-            missing.append("GEMINI_API_KEY")
-        if missing:
-            raise RuntimeError(
-                f"Missing required environment variables: {', '.join(missing)}"
-            )
+class Settings(BaseSettings):
+    GOOGLE_API_KEY: str = ""
+    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_API_KEY: str = ""
+    COLLECTION_NAME: str = "omnirarg_docs"
+
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    APP_HOST: str = "0.0.0.0"
+    APP_PORT: int = 8000
+    LOG_LEVEL: str = "info"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 @lru_cache

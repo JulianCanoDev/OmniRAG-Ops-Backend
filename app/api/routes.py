@@ -4,7 +4,6 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
 
 from app.models.schemas import (
     IngestionRequest,
@@ -12,7 +11,7 @@ from app.models.schemas import (
     HealthResponse,
     HealthComponent,
 )
-from app.services.ingestion_service import process_ingestion
+from app.services.ingestion import process_ingestion
 from app.services.gemini_service import check_connectivity as check_gemini
 from app.services.vector_service import check_connectivity as check_qdrant
 

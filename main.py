@@ -33,8 +33,6 @@ app.include_router(router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    settings = get_settings()
-    settings.validate()
     logging.info("OmniRAG-Ops startup complete")
 
 
@@ -42,9 +40,9 @@ def main() -> None:
     settings = get_settings()
     uvicorn.run(
         "main:app",
-        host=settings.app_host,
-        port=settings.app_port,
-        log_level=settings.log_level,
+        host=settings.APP_HOST,
+        port=settings.APP_PORT,
+        log_level=settings.LOG_LEVEL,
         reload=False,
     )
 
