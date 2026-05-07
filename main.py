@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+import logging
+
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.routes import router
+from app.core.config import get_settings
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+)
+
+app = FastAPI(
+    title="OmniRAG-Ops",
+    description="High-performance RAG Ingestion Engine with Gemini metadata enrichment",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(router, prefix="/api/v1")
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    settings = get_settings()
+    settings.validate()
+    logging.info("OmniRAG-Ops startup complete")
+
+
+def main() -> None:
+    settings = get_settings()
+    uvicorn.run(
+        "main:app",
+        host=settings.app_host,
+        port=settings.app_port,
+        log_level=settings.log_level,
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    main()

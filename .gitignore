@@ -1,0 +1,36 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project
+record_manager_cache.sql
+*.db
+*.sqlite
+.sqlite3
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Docker
+.dockerignore
+
+# Logs
+*.log
