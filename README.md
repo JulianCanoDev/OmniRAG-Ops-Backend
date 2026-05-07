@@ -1,15 +1,23 @@
 # OmniRAG-Ops
 
-**High-performance RAG Ingestion Engine** with AI-powered metadata enrichment. Supports PDF, Word, Excel, and raw text.
+**High-performance RAG Ingestion Engine** with AI-powered metadata enrichment and a **control-plane** for remote Qdrant collection lifecycle management. Supports PDF, Word, Excel, and raw text.
 
 ---
 
 ## Architecture
 
 ```
-Client ──► FastAPI ──► Gemini (metadata enrichment)
-                │
-                └────► Qdrant (vector store, dedup via RecordManager)
+                  ┌─────────────────────────────────────────────┐
+                  │              OmniRAG-Ops (stateless)        │
+                  │                                             │
+Client ──► FastAPI ──► Gemini 2.5 Flash (metadata enrichment)   │
+                  │                                             │
+                  └────► Qdrant Client (remote only, url+key)   │
+                        │                                       │
+                        ├── Data plane: ingest, query, search   │
+                        └── Control plane: create, delete, list │
+                              collections                       │
+                  └─────────────────────────────────────────────┘
 ```
 
 Qdrant is treated as a **purely external service** — the application never initializes a local
@@ -26,6 +34,11 @@ database or uses path-based storage. All connections use `url=` + `api_key=` par
 | Embeddings        | Google text-embedding-004   | Generate vector representations           |
 | Document Loaders  | LangChain Community Loaders | Parse PDF, DOCX, XLSX into text           |
 | Config            | pydantic-settings           | Load env vars from `.env` file            |
+| Control Plane     | CollectionService            | Programmatic create / delete / list collections |
+
+### Stateless middleware contract
+
+On startup, the application logs its operating mode — including whether authentication is enabled or the target Qdrant URL — and **never attempts to spawn, install, or embed a local vector database**. Every Qdrant call uses the remote client established by `get_qdrant_client()`.
 
 ### Supported file formats
 
@@ -66,7 +79,7 @@ git clone https://github.com/JulianCanoDev/OmniRAG-Ops-Backend && cd OmniRAG-Ops
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env with your actual keys
+# Edit .env with your actual keys (GOOGLE_API_KEY, QDRANT_URL, QDRANT_API_KEY)
 
 # 3. Install dependencies
 python -m venv .venv && source .venv/bin/activate
@@ -75,6 +88,14 @@ pip install -r requirements.txt
 # 4. Run
 python main.py
 ```
+
+### Run with Docker Compose
+
+```bash
+docker compose up -d
+```
+
+The compose file builds the `api` service from the local Dockerfile and exposes port `8000`. It includes DNS configuration (`8.8.8.8`, `1.1.1.1`) and log rotation limits (10 MB / 3 files). Connect it to an external Qdrant instance by setting `QDRANT_URL` in your `.env` file.
 
 ### Environment variables
 
@@ -302,10 +323,71 @@ Returns connectivity status for Gemini and Qdrant. Returns **503 Service Unavail
 
 ---
 
+### Control Plane — Collection Management
+
+All operations are executed against the remote Qdrant instance via network calls. The application never hosts or installs a local database.
+
+#### `GET /api/v1/collections`
+
+List all collections in the remote Qdrant instance with their current status and vector count.
+
+```json
+{
+  "collections": [
+    {
+      "name": "omnirarg_docs",
+      "status": "green",
+      "vectors_count": 312
+    }
+  ]
+}
+```
+
+#### `POST /api/v1/collections`
+
+Create a new Qdrant collection. Returns **409 Conflict** if a collection with the same name already exists.
+
+```json
+{
+  "name": "my_collection",
+  "vector_size": 768,
+  "distance": "Cosine"
+}
+```
+
+| Field        | Type   | Default  | Description                                         |
+|--------------|--------|----------|-----------------------------------------------------|
+| `name`       | string | —        | Collection name (required)                          |
+| `vector_size`| int    | `768`    | Embedding dimension (768 for Gemini text-embedding-004) |
+| `distance`   | string | `Cosine` | Distance metric: `Cosine`, `Dot`, or `Euclid`       |
+
+```json
+// HTTP 201
+{ "status": "created", "name": "my_collection" }
+
+// HTTP 409
+{ "detail": "Collection 'my_collection' already exists" }
+```
+
+#### `DELETE /api/v1/collections/{name}`
+
+Permanently delete a collection and its associated `SQLRecordManager` namespace. Returns **404 Not Found** if the collection does not exist.
+
+```json
+// HTTP 200
+{ "status": "deleted", "name": "my_collection" }
+
+// HTTP 404
+{ "detail": "Collection 'my_collection' not found" }
+```
+
+---
+
 ## Project structure
 
 ```
 OmniRAG-Ops/
+├── docker-compose.yml       # Stateless API container (no embedded Qdrant)
 ├── main.py                  # Entry point
 ├── requirements.txt
 ├── Dockerfile
@@ -325,10 +407,11 @@ OmniRAG-Ops/
     │   └── schemas.py       # Pydantic models
     └── services/
         ├── __init__.py
-        ├── ingestion.py         # _get_loader + Qdrant client + orchestration
-        ├── gemini_service.py    # Gemini LLM integration
-        ├── vector_service.py    # Qdrant vector store + indexing + low-level ops
-        └── management.py        # CRUD, query & stats business logic
+        ├── collection_service.py  # Control-plane: create/delete/list collections
+        ├── ingestion.py           # _get_loader + Qdrant client + orchestration
+        ├── gemini_service.py      # Gemini LLM integration
+        ├── vector_service.py      # Qdrant vector store + indexing + low-level ops
+        └── management.py          # CRUD, query & stats business logic
 ```
 
 ---

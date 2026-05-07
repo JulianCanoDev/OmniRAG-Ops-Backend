@@ -18,6 +18,9 @@ from app.models.schemas import (
     QueryResponse,
     StatsResponse,
     MetadataUpdateRequest,
+    CollectionCreateRequest,
+    CollectionListResponse,
+    CollectionInfo,
 )
 from app.services.ingestion import process_ingestion
 from app.services.management import (
@@ -30,6 +33,7 @@ from app.services.management import (
 )
 from app.services.gemini_service import check_connectivity as check_gemini
 from app.services.vector_service import check_connectivity as check_qdrant
+from app.services.collection_service import CollectionService
 
 logger = logging.getLogger(__name__)
 
@@ -182,3 +186,53 @@ async def health(response: Response) -> dict[str, Any]:
             status="ok" if qdrant_ok else "unreachable", detail=qdrant_msg
         ),
     ).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Control-plane — collection lifecycle
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/collections",
+    status_code=201,
+    summary="Create a new Qdrant collection",
+)
+async def create_collection(body: CollectionCreateRequest) -> dict[str, Any]:
+    result = CollectionService.create(
+        name=body.name,
+        vector_size=body.vector_size,
+        distance=body.distance,
+    )
+    if result.get("conflict"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Collection '{body.name}' already exists",
+        )
+    return {"status": "created", "name": body.name}
+
+
+@router.delete(
+    "/collections/{name}",
+    summary="Permanently delete a Qdrant collection and its RecordManager data",
+)
+async def delete_collection(name: str) -> dict[str, Any]:
+    deleted = CollectionService.delete(name)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Collection '{name}' not found",
+        )
+    return {"status": "deleted", "name": name}
+
+
+@router.get(
+    "/collections",
+    response_model=CollectionListResponse,
+    summary="List all collections in the remote Qdrant instance",
+)
+async def list_collections() -> CollectionListResponse:
+    items = CollectionService.list_all()
+    return CollectionListResponse(
+        collections=[CollectionInfo(**i) for i in items]
+    )

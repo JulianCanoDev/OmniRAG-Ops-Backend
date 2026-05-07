@@ -45,6 +45,7 @@ class _ExcelLoader(BaseLoader):
 
 def _build_qdrant_client() -> QdrantClient:
     settings = get_settings()
+    logger.debug("Connecting to remote Qdrant at %s", settings.QDRANT_URL)
     return QdrantClient(
         url=settings.QDRANT_URL,
         api_key=settings.QDRANT_API_KEY or None,

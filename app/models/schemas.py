@@ -101,3 +101,34 @@ class ErrorResponse(BaseModel):
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+
+# ---------------------------------------------------------------------------
+# Control-plane — collection management
+# ---------------------------------------------------------------------------
+
+
+class CollectionCreateRequest(BaseModel):
+    name: str = Field(
+        ..., min_length=1, description="Name of the Qdrant collection"
+    )
+    vector_size: int = Field(
+        default=768,
+        ge=1,
+        description="Dimensionality of the embedding vectors (768 for Gemini text-embedding-004)",
+    )
+    distance: str = Field(
+        default="Cosine",
+        pattern=r"^(Cosine|Dot|Euclid)$",
+        description="Distance metric: Cosine, Dot, or Euclid",
+    )
+
+
+class CollectionInfo(BaseModel):
+    name: str
+    status: str
+    vectors_count: int = 0
+
+
+class CollectionListResponse(BaseModel):
+    collections: list[CollectionInfo]

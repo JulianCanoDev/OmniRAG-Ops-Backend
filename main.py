@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.config import get_settings
 
+logger = logging.getLogger(__name__)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
@@ -33,7 +35,17 @@ app.include_router(router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    logging.info("OmniRAG-Ops startup complete — multi-format ingestion ready")
+    settings = get_settings()
+    logger.info("OmniRAG-Ops startup complete — multi-format ingestion ready")
+    logger.info(
+        "Stateless Middleware — connecting to remote vector database at %s",
+        settings.QDRANT_URL,
+    )
+    logger.info(
+        "QDRANT_API_KEY is %s — operating in %s mode",
+        "set" if settings.QDRANT_API_KEY else "not set",
+        "authenticated (cloud/managed)" if settings.QDRANT_API_KEY else "unauthenticated (trusted network)",
+    )
 
 
 def main() -> None:

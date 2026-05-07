@@ -14,6 +14,13 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# OmniRAG-Ops is a stateless middleware.  It never hosts, embeds, or
+# installs a local vector database.  All Qdrant operations go through the
+# remote client below, which expects an already-running Qdrant service
+# reachable via QDRANT_URL (cloud, VPS, Docker network, etc.).
+# ---------------------------------------------------------------------------
+
 _CHUNK_SIZE = 1000
 _CHUNK_OVERLAP = 200
 
@@ -28,6 +35,7 @@ def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
 
 def get_qdrant_client() -> QdrantClient:
     settings = get_settings()
+    logger.debug("Connecting to remote Qdrant at %s", settings.QDRANT_URL)
     return QdrantClient(
         url=settings.QDRANT_URL,
         api_key=settings.QDRANT_API_KEY or None,
