@@ -1,66 +1,36 @@
 # OmniRAG-Ops
 
-**High-performance RAG Ingestion Engine** with AI-powered metadata enrichment and a **control-plane** for remote Qdrant collection lifecycle management. Supports PDF, Word, Excel, PNG/JPG, and raw text. All embeddings use `gemini-embedding-2` (1536-dim, Cosine).
+**Production-grade RAG Ingestion Engine** — stateless middleware that ingests documents, enriches metadata via Gemini AI, stores vectors in remote Qdrant, and manages deduplication via PostgreSQL. Secured with JWT authentication.
+
+```
+                         ┌──────────────────────────────────────────────────────────┐
+                         │                  OmniRAG-Ops (stateless)                 │
+                         │                                                          │
+ Client ──► JWT Auth ──► FastAPI ──► Gemini 2.5 Flash (metadata enrichment)         │
+                         │                                                          │
+                         ├──► Qdrant Client (remote, url+api_key)                   │
+                         │     ├── Data plane: ingest, query, search                │
+                         │     └── Control plane: create / delete / list collections│
+                         │                                                          │
+                         ├──► PostgreSQL (RecordManager dedup + User auth store)    │
+                         └──────────────────────────────────────────────────────────┘
+```
+
+Zero local storage — all data resides in external Qdrant and PostgreSQL. Designed for Dokploy / Docker Compose deployment.
 
 ---
 
-## Architecture
+## Features
 
-```
-                  ┌─────────────────────────────────────────────┐
-                  │              OmniRAG-Ops (stateless)        │
-                  │                                             │
- Client ──► FastAPI ──► Gemini 2.5 Flash (metadata enrichment)  │
-                  │                                             │
-                  └────► Qdrant Client (remote only, url+key)   │
-                        │                                       │
-                        ├── Data plane: ingest, query, search   │
-                        └── Control plane: create, delete, list │
-                              collections                       │
-                  └─────────────────────────────────────────────┘
-```
-
-Qdrant is treated as a **purely external service** — the application never initializes a local
-database or uses path-based storage. All connections use `url=` + `api_key=` parameters.
-
-### Key components
-
-| Layer             | Technology                  | Role                                      |
-|-------------------|-----------------------------|-------------------------------------------|
-| API               | FastAPI + Uvicorn           | HTTP interface for ingestion & health     |
-| AI                | Gemini 2.5 Flash            | Summarisation, category & priority tags   |
-| Vector DB         | Qdrant (external, client-only) | Store & retrieve embeddings via URL+API key |
-| Indexing          | LangChain Indexing API         | Dedup content via SQLRecordManager          |
-| Embeddings        | Google gemini-embedding-2 | Generate vector representations (1536-dim) |
-| Document Loaders  | LangChain Community Loaders | Parse PDF, DOCX, XLSX into text           |
-| Config            | pydantic-settings           | Load env vars from `.env` file            |
-| Control Plane     | CollectionService            | Programmatic create / delete / list collections |
-
-### Stateless middleware contract
-
-On startup, the application logs its operating mode — including whether authentication is enabled or the target Qdrant URL — and **never attempts to spawn, install, or embed a local vector database**. Every Qdrant call uses the remote client established by `get_qdrant_client()`.
-
-### Supported file formats
-
-| Format    | Extension(s)      | Loader                | Library       |
-|-----------|-------------------|-----------------------|---------------|
-| PDF       | `.pdf`            | `PyPDFLoader`         | pypdf         |
-| Word      | `.docx`, `.doc`   | `Docx2txtLoader`      | python-docx   |
-| Excel     | `.xlsx`, `.xls`   | `_ExcelLoader` (custom, pandas-backed) | pandas + openpyxl |
-| Image     | `.png`, `.jpg`, `.jpeg` | `_ImageLoader` (custom, Pillow-backed) | Pillow        |
-| Text      | —                 | Inline ingestion      | —             |
-
-### How ingestion works
-
-1. Content is received via `/api/v1/ingest` (raw text) or `/api/v1/ingest/file` (PDF / Word / Excel / PNG / JPG).
-2. The route saves the uploaded file to a **temporary directory** (`tempfile.NamedTemporaryFile`) and passes the path to `ingestion.py`.
-3. `_get_loader(file_path, extension)` dispatches to the correct LangChain document loader (`PyPDFLoader`, `Docx2txtLoader`, `_ExcelLoader`, or `_ImageLoader`).
-4. A **Qdrant client** is created using `QdrantClient(url=..., api_key=...)` — it connects exclusively to an externally-running Qdrant instance (Docker, Cloud, or separate VPS). No local database is ever created.
-5. Extracted text is sent to **Gemini 2.5 Flash** for metadata enrichment (summary, category, priority).
-6. Enriched metadata (document_id, source, summary, category, priority) is attached to every chunk.
-7. Content is split into chunks using `RecursiveCharacterTextSplitter`.
-8. Chunks are embedded with `gemini-embedding-2` (1536-dim, Cosine) and indexed into **Qdrant** using LangChain's `index()` API, which leverages a **SQLRecordManager** (backed by local SQLite `record_manager.db`) to skip duplicates by source ID.
-9. A response is returned with the document ID, chunk count, and enriched metadata.
+- **Multi-format ingestion** — PDF, Word (DOCX/DOC), Excel (XLSX/XLS), images (PNG/JPG), raw text
+- **AI metadata enrichment** — Gemini 2.5 Flash generates summary, category, and priority tags
+- **JWT authentication** — Register / login flow, protected ingestion & collection endpoints
+- **PostgreSQL-backed dedup** — LangChain `SQLRecordManager` skips duplicate chunks on re-ingest
+- **Remote Qdrant control plane** — Create, list, and delete collections programmatically
+- **Connection pooling** — SQLAlchemy engine with `pool_size=5`, `max_overflow=10`
+- **Stateless by design** — no local vector DB, no local file storage
+- **Production logging** — `[Stateless Middleware]` identity tag in every log line
+- **Docker Compose** — API + PostgreSQL, DNS overrides, healthchecks, log rotation
 
 ---
 
@@ -68,307 +38,229 @@ On startup, the application logs its operating mode — including whether authen
 
 ### Prerequisites
 
-- Python 3.11+
-- A running Qdrant instance ([Docker](https://qdrant.tech/documentation/quick-start/) or [Qdrant Cloud](https://cloud.qdrant.io/))
-- A Google Gemini API key
+| Dependency | Notes |
+|------------|-------|
+| [Qdrant](https://qdrant.tech/documentation/quick-start/) | Cloud or self-hosted |
+| [Google Gemini API key](https://aistudio.google.com/apikey) | For embeddings & enrichment |
 
-### Setup
+### Local development
 
 ```bash
-# 1. Clone and enter the project
 git clone https://github.com/JulianCanoDev/OmniRAG-Ops-Backend && cd OmniRAG-Ops
 
-# 2. Configure environment
 cp .env.example .env
-# Edit .env with your actual keys (GOOGLE_API_KEY, QDRANT_URL, QDRANT_API_KEY)
+# Edit .env — set GOOGLE_API_KEY, QDRANT_URL, QDRANT_API_KEY, SECRET_KEY
 
-# 3. Install dependencies
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Run
 python main.py
 ```
 
-### Run with Docker Compose
+### Docker Compose (recommended for production)
 
 ```bash
 docker compose up -d
 ```
 
-The compose file builds the `api` service from the local Dockerfile and exposes port `8000`. It includes DNS configuration (`8.8.8.8`, `1.1.1.1`) and log rotation limits (10 MB / 3 files). Connect it to an external Qdrant instance by setting `QDRANT_URL` in your `.env` file.
+This starts:
+- `omnirg-api` — the FastAPI application (port 8000)
+- `omnirg-db` — PostgreSQL 16 (RecordManager + user storage)
 
-### Environment variables
+Both services include healthchecks, restart policies, DNS overrides (`8.8.8.8`, `1.1.1.1`), and log rotation.
 
-| Variable           | Default                  | Required | Description                           |
-|--------------------|--------------------------|----------|---------------------------------------|
-| `GOOGLE_API_KEY`   | —                        | Yes      | Gemini API key                        |
-| `QDRANT_URL`       | `http://localhost:6333`  | No       | Qdrant server URL                     |
-| `QDRANT_API_KEY`   | —                        | No       | Qdrant API key (if using Cloud)       |
-| `COLLECTION_NAME`  | `omnirarg_docs`          | No       | Qdrant collection name                |
-| `GEMINI_MODEL`     | `gemini-2.5-flash`       | No       | Gemini LLM for metadata enrichment    |
-| `EMBEDDING_MODEL_ID` | `models/gemini-embedding-2` | No    | Embedding model ID                    |
-| `EMBEDDING_OUTPUT_DIMENSIONALITY` | `1536`         | No       | Output vector dimensions (Matryoshka) |
+---
 
-Settings are managed via **pydantic-settings** (`app/core/config.py`) which reads from a `.env` file at the project root. A template is provided at `.env.example`. All embedding parameters (`EMBEDDING_MODEL_ID`, `EMBEDDING_OUTPUT_DIMENSIONALITY`) are configurable without code changes — the Matryoshka output dimensionality can be tuned between 256 and 3072.
+## Authentication
+
+All protected endpoints require a Bearer JWT token in the `Authorization` header.
+
+### `POST /api/v1/auth/register`
+
+```json
+{
+  "email": "user@example.com",
+  "password": "strongpassword123"
+}
+```
+
+```json
+// HTTP 201
+{
+  "id": "a1b2c3d4-...",
+  "email": "user@example.com",
+  "is_active": true,
+  "is_admin": false,
+  "created_at": "2026-01-01T00:00:00Z"
+}
+```
+
+### `POST /api/v1/auth/login`
+
+Send as `application/x-www-form-urlencoded` with fields `username` and `password`.
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer"
+}
+```
+
+Use the token in subsequent requests:
+
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+```
+
+---
+
+## Environment variables
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `GOOGLE_API_KEY` | — | Yes | Gemini API key |
+| `QDRANT_URL` | `http://localhost:6333` | No | Remote Qdrant URL |
+| `QDRANT_API_KEY` | — | No | Qdrant Cloud API key |
+| `COLLECTION_NAME` | `omnirarg_docs` | No | Default Qdrant collection |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | No | Gemini model for enrichment |
+| `EMBEDDING_MODEL_ID` | `models/gemini-embedding-2` | No | Embedding model |
+| `EMBEDDING_OUTPUT_DIMENSIONALITY` | `1536` | No | Matryoshka output dim (256–3072) |
+| `HOST` | `0.0.0.0` | No | Uvicorn bind address |
+| `PORT` | `8000` | No | Uvicorn port |
+| `LOG_LEVEL` | `info` | No | Uvicorn log level |
+| `DATABASE_URL` | `postgresql+psycopg2://omnirg:omnirg@db:5432/omnirg` | No | PostgreSQL connection string |
+| `RECORD_MANAGER_NAMESPACE` | `omnirag/upsert_records` | No | SQLRecordManager namespace |
+| `SECRET_KEY` | `change-me-in-production` | **Yes** | JWT signing key |
+| `ALGORITHM` | `HS256` | No | JWT algorithm |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | No | Token TTL |
+| `CHUNK_SIZE` | `1000` | No | Text splitter chunk size |
+| `CHUNK_OVERLAP` | `200` | No | Text splitter overlap |
+
+All settings loaded via **pydantic-settings** (`app/core/config.py`).
 
 ---
 
 ## API reference
 
-### Ingestion
+Protected endpoints require `Authorization: Bearer <token>`.
+
+### Ingestion (🔒 Protected)
 
 #### `POST /api/v1/ingest`
 
 Ingest raw text.
 
 ```json
-{
-  "content": "Your document text here...",
-  "source": "my-doc.txt"
-}
+{ "content": "Your document text...", "source": "my-doc.txt" }
 ```
 
-#### `POST /api/v1/ingest/file`
+#### `POST /api/v1/ingest/file` — `multipart/form-data`
 
-Upload a file. Supported formats:
+Upload a file (`field: file`).
 
-| Format  | Extensions                |
-|---------|---------------------------|
-| PDF     | `.pdf`                    |
-| Word    | `.docx`, `.doc`           |
-| Excel   | `.xlsx`, `.xls`           |
-| Image   | `.png`, `.jpg`, `.jpeg`   |
-
-Send as `multipart/form-data` with field name `file`.
-
----
-
-### Document Management
-
-#### `GET /api/v1/documents`
-
-List all ingested documents with pagination.
-
-| Query param | Default | Description                |
-|-------------|---------|----------------------------|
-| `skip`      | `0`     | Number of items to skip    |
-| `limit`     | `20`    | Max items to return (≤200) |
+| Format  | Extensions |
+|---|---|
+| PDF | `.pdf` |
+| Word | `.docx`, `.doc` |
+| Excel | `.xlsx`, `.xls` |
+| Image | `.png`, `.jpg`, `.jpeg` |
 
 ```json
 {
-  "total": 42,
-  "skip": 0,
-  "limit": 20,
-  "items": [
-    {
-      "document_id": "uuid-string",
-      "source": "report.pdf",
-      "summary": "Financial analysis of Q3 earnings...",
-      "category": "finance",
-      "priority": "high",
-      "chunk_count": 12
-    }
-  ]
+  "status": "success",
+  "document_id": "uuid",
+  "chunks_processed": 12,
+  "metadata": { "summary": "...", "category": "tech", "priority": "high" },
+  "message": "Document ingested successfully"
 }
 ```
+
+### Document Management (Public)
+
+#### `GET /api/v1/documents?skip=0&limit=20`
+
+List documents with pagination.
 
 #### `GET /api/v1/documents/{doc_id}`
 
-Get detailed information about a specific document by its UUID.
-
-```json
-{
-  "document_id": "uuid-string",
-  "source": "report.pdf",
-  "summary": "Financial analysis of Q3 earnings...",
-  "category": "finance",
-  "priority": "high",
-  "chunk_count": 12
-}
-```
-
-Returns **404** if the document is not found.
+Get document by UUID.
 
 #### `DELETE /api/v1/documents/{source_id}`
 
-Deep delete — removes all chunks with the given `source_id` (filename) from both Qdrant and the SQLRecordManager, preventing ghost records.
+Deep delete by source (filename). Removes from Qdrant + RecordManager.
 
 ```json
-{
-  "status": "deleted",
-  "source_id": "report.pdf",
-  "points_removed": 12
-}
+{ "status": "deleted", "source_id": "report.pdf", "points_removed": 12 }
 ```
-
-Returns **404** if no points match the source.
 
 #### `PATCH /api/v1/documents/{source_id}/metadata`
 
-Override Gemini-generated metadata tags for every chunk sharing the same source.
+Override Gemini-generated metadata.
 
 ```json
-{
-  "category": "legal",
-  "priority": "high"
-}
+{ "category": "legal", "priority": "high" }
 ```
 
-```json
-{
-  "status": "updated",
-  "source_id": "report.pdf",
-  "points_affected": 12,
-  "updated_fields": ["category", "priority"]
-}
-```
-
-Returns **404** if no points match the source, **400** if no fields are provided.
-
----
-
-### Search & Query
+### Search (Public)
 
 #### `POST /api/v1/query`
 
-Semantic search over ingested documents. Embeds the question and returns the top K most relevant chunks with similarity scores.
-
 ```json
-{
-  "question": "What were the Q3 earnings?",
-  "top_k": 5
-}
+{ "question": "What were the Q3 earnings?", "top_k": 5 }
 ```
 
 ```json
 {
   "results": [
-    {
-      "chunk_content": "Revenue increased by 15%...",
-      "score": 0.89,
-      "metadata": {
-        "document_id": "uuid",
-        "source": "report.pdf",
-        "summary": "...",
-        "category": "finance",
-        "priority": "high"
-      }
-    }
+    { "chunk_content": "Revenue up 15%...", "score": 0.89, "metadata": { ... } }
   ]
 }
 ```
 
----
-
-### Statistics
+### Statistics (Public)
 
 #### `GET /api/v1/stats`
-
-Aggregated statistics about the vector store.
 
 ```json
 {
   "total_documents": 42,
   "total_chunks": 312,
-  "category_distribution": {
-    "finance": 18,
-    "technology": 14,
-    "healthcare": 7,
-    "unknown": 3
-  },
-  "priority_distribution": {
-    "medium": 20,
-    "high": 12,
-    "low": 10
-  }
+  "category_distribution": { "finance": 18, "technology": 14, "healthcare": 7, "unknown": 3 },
+  "priority_distribution": { "medium": 20, "high": 12, "low": 10 }
 }
 ```
 
----
-
-### Health
+### Health (Public)
 
 #### `GET /api/v1/health`
 
-Returns connectivity status for Gemini and Qdrant. Returns **503 Service Unavailable** if either service is unreachable.
+Returns **200** if Gemini + Qdrant are reachable, **503** otherwise.
 
 ```json
-// HTTP 200 — all services reachable
-{
-  "status": "healthy",
-  "timestamp": "2026-01-01T00:00:00Z",
-  "gemini": { "status": "ok", "detail": "reachable" },
-  "qdrant": { "status": "ok", "detail": "reachable" }
-}
-
-// HTTP 503 — one or more services down
-{
-  "status": "unavailable",
-  "timestamp": "2026-01-01T00:00:00Z",
-  "gemini": { "status": "ok", "detail": "reachable" },
-  "qdrant": { "status": "unreachable", "detail": "Connection refused" }
-}
+{ "status": "healthy", "gemini": { "status": "ok" }, "qdrant": { "status": "ok" } }
 ```
 
----
+### Collection Control Plane (🔒 Protected)
 
-### Control Plane — Collection Management
+#### `POST /api/v1/collections`
 
-All operations are executed against the remote Qdrant instance via network calls. The application never hosts or installs a local database.
+```json
+{ "name": "my_collection", "vector_size": 1536, "distance": "Cosine" }
+```
+
+Returns **201** or **409** (conflict).
+
+#### `DELETE /api/v1/collections/{name}`
+
+Returns **200** or **404**.
 
 #### `GET /api/v1/collections`
-
-List all collections in the remote Qdrant instance with their current status and vector count.
 
 ```json
 {
   "collections": [
-    {
-      "name": "omnirarg_docs",
-      "status": "green",
-      "vectors_count": 312
-    }
+    { "name": "omnirarg_docs", "status": "green", "vectors_count": 312 }
   ]
 }
-```
-
-#### `POST /api/v1/collections`
-
-Create a new Qdrant collection. Returns **409 Conflict** if a collection with the same name already exists.
-
-```json
-{
-  "name": "my_collection",
-  "vector_size": 1536,
-  "distance": "Cosine"
-}
-```
-
-| Field        | Type   | Default  | Description                                         |
-|--------------|--------|----------|-----------------------------------------------------|
-| `name`       | string | —        | Collection name (required)                          |
-| `vector_size`| int    | `1536`   | Embedding dimension (1536 for gemini-embedding-2)  |
-| `distance`   | string | `Cosine` | Distance metric: `Cosine`, `Dot`, or `Euclid`       |
-
-```json
-// HTTP 201
-{ "status": "created", "name": "my_collection" }
-
-// HTTP 409
-{ "detail": "Collection 'my_collection' already exists" }
-```
-
-#### `DELETE /api/v1/collections/{name}`
-
-Permanently delete a collection and its associated `SQLRecordManager` namespace. Returns **404 Not Found** if the collection does not exist.
-
-```json
-// HTTP 200
-{ "status": "deleted", "name": "my_collection" }
-
-// HTTP 404
-{ "detail": "Collection 'my_collection' not found" }
 ```
 
 ---
@@ -377,31 +269,33 @@ Permanently delete a collection and its associated `SQLRecordManager` namespace.
 
 ```
 OmniRAG-Ops/
-├── docker-compose.yml       # Stateless API container (no embedded Qdrant)
-├── main.py                  # Entry point
+├── docker-compose.yml       # API + PostgreSQL services
+├── Dockerfile               # python:3.13-slim multi-stage build
+├── main.py                  # FastAPI entry point
 ├── requirements.txt
-├── Dockerfile
-├── .env.example             # Environment variable template
+├── .env.example
 ├── .gitignore
 ├── README.md
 └── app/
-    ├── __init__.py
     ├── api/
     │   ├── __init__.py
-    │   └── routes.py        # Endpoint definitions
+    │   ├── auth.py           # /auth/register, /auth/login
+    │   └── routes.py         # All other endpoints
     ├── core/
     │   ├── __init__.py
-    │   └── config.py        # pydantic-settings BaseSettings
+    │   ├── config.py         # pydantic-settings (all env vars)
+    │   └── security.py       # Password hashing, JWT, get_current_user
     ├── models/
     │   ├── __init__.py
-    │   └── schemas.py       # Pydantic models
+    │   ├── schemas.py        # Pydantic request/response models
+    │   └── user.py           # SQLAlchemy User model + auth schemas
     └── services/
         ├── __init__.py
-        ├── collection_service.py  # Control-plane: create/delete/list collections
-        ├── ingestion.py           # _get_loader + Qdrant client + orchestration
+        ├── collection_service.py  # Qdrant collection CRUD
         ├── gemini_service.py      # Gemini LLM integration
-        ├── vector_service.py      # Qdrant vector store + indexing + low-level ops
-        └── management.py          # CRUD, query & stats business logic
+        ├── ingestion.py           # Document loading + orchestration + shared DB engine
+        ├── management.py          # Query, stats, CRUD business logic
+        └── vector_service.py      # Qdrant vector store, indexing, RecordManager
 ```
 
 ---
@@ -409,13 +303,8 @@ OmniRAG-Ops/
 ## Development
 
 ```bash
-# Install dev extras
 pip install ruff pytest httpx
-
-# Lint
 ruff check .
-
-# Run tests (add your own under tests/)
 pytest -v
 ```
 
@@ -423,16 +312,15 @@ pytest -v
 
 ## Repository safety
 
-The `.gitignore` blocks the following from being committed:
+The `.gitignore` blocks:
 
 - `.env` — secrets and credentials
-- `record_manager.db` / `*.db` / `*.sqlite` — local RecordManager cache
-- `__pycache__/`, `.venv/`, IDE files, and OS artefacts
+- `__pycache__/`, `.venv/`, IDE files, OS artefacts
 
-Always copy `.env.example` to `.env` and fill in your real values — never commit the `.env` file.
+Always copy `.env.example` to `.env` and fill in your real values — never commit `.env`.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).

@@ -6,6 +6,7 @@ from typing import Any
 from langchain.indexes import SQLRecordManager
 from qdrant_client import QdrantClient, models
 
+from app.core.config import get_settings
 from app.services.vector_service import get_qdrant_client
 
 logger = logging.getLogger(__name__)
@@ -15,8 +16,6 @@ _DISTANCE_MAP: dict[str, models.Distance] = {
     "Dot": models.Distance.DOT,
     "Euclid": models.Distance.EUCLID,
 }
-
-_GEMINI_EMBEDDING_SIZE = 1536
 
 
 class CollectionService:
@@ -53,13 +52,16 @@ class CollectionService:
         client.delete_collection(collection_name=name)
         logger.info("Deleted collection '%s' from Qdrant", name)
 
-        namespace = f"qdrant/{name}"
+        settings = get_settings()
         try:
+            from app.services.ingestion import get_engine
+            engine = get_engine()
             record_manager = SQLRecordManager(
-                namespace=namespace, db_url="sqlite:///record_manager.db"
+                namespace=settings.RECORD_MANAGER_NAMESPACE,
+                engine=engine,
             )
             record_manager.create_schema()
-            record_manager.delete_session(namespace)
+            record_manager.delete_session(settings.RECORD_MANAGER_NAMESPACE)
             logger.info("Cleared SQLRecordManager namespace '%s'", namespace)
         except Exception:
             logger.exception("Failed to clear RecordManager for '%s'", name)

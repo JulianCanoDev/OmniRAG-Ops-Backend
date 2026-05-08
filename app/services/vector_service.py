@@ -21,9 +21,6 @@ logger = logging.getLogger(__name__)
 # reachable via QDRANT_URL (cloud, VPS, Docker network, etc.).
 # ---------------------------------------------------------------------------
 
-_CHUNK_SIZE = 1000
-_CHUNK_OVERLAP = 200
-
 
 def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
     settings = get_settings()
@@ -68,9 +65,11 @@ def _ensure_collection_exists(client: QdrantClient) -> None:
 
 def get_record_manager() -> SQLRecordManager:
     settings = get_settings()
-    namespace = f"qdrant/{settings.COLLECTION_NAME}"
+    from app.services.ingestion import get_engine
+    engine = get_engine()
     record_manager = SQLRecordManager(
-        namespace=namespace, db_url="sqlite:///record_manager.db"
+        namespace=settings.RECORD_MANAGER_NAMESPACE,
+        engine=engine,
     )
     record_manager.create_schema()
     return record_manager
@@ -79,12 +78,13 @@ def get_record_manager() -> SQLRecordManager:
 def index_documents(
     docs: list[Document], client: QdrantClient
 ) -> dict[str, Any]:
+    settings = get_settings()
     _ensure_collection_exists(client)
     vector_store = _get_vector_store(client)
     record_manager = get_record_manager()
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=_CHUNK_SIZE,
-        chunk_overlap=_CHUNK_OVERLAP,
+        chunk_size=settings.CHUNK_SIZE,
+        chunk_overlap=settings.CHUNK_OVERLAP,
     )
     split_docs = text_splitter.split_documents(docs)
     result = index(

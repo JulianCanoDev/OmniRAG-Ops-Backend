@@ -16,6 +16,20 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_ID: str = "models/gemini-embedding-2"
     EMBEDDING_OUTPUT_DIMENSIONALITY: int = 1536
 
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    LOG_LEVEL: str = "info"
+
+    DATABASE_URL: str = "postgresql+psycopg2://omnirg:omnirg@db:5432/omnirg"
+    RECORD_MANAGER_NAMESPACE: str = "omnirag/upsert_records"
+
+    SECRET_KEY: str = "change-me-in-production"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

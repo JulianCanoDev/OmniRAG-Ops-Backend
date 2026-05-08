@@ -15,6 +15,8 @@ from langchain_core.documents import Document
 from langchain_core.document_loaders import BaseLoader
 from PIL import Image
 from qdrant_client import QdrantClient
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 
 from app.core.config import get_settings
 from app.models.schemas import IngestionRequest, IngestionResponse
@@ -24,6 +26,24 @@ from app.services.vector_service import index_documents
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".png", ".jpg", ".jpeg"}
+
+
+_engine: Engine | None = None
+
+
+def get_engine() -> Engine:
+    global _engine
+    if _engine is None:
+        settings = get_settings()
+        _engine = create_engine(
+            settings.DATABASE_URL,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+        )
+        logger.info("Created SQLAlchemy engine for %s", settings.DATABASE_URL)
+    return _engine
 
 
 class _ExcelLoader(BaseLoader):

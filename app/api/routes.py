@@ -5,8 +5,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query, Response
 
+from app.core.security import get_current_user
 from app.models.schemas import (
     IngestionRequest,
     IngestionResponse,
@@ -47,7 +48,10 @@ _SUPPORTED_EXTENSIONS: set[str] = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".p
     response_model=IngestionResponse,
     summary="Ingest text content into the vector store",
 )
-async def ingest_text(payload: IngestionRequest) -> IngestionResponse:
+async def ingest_text(
+    payload: IngestionRequest,
+    _user=Depends(get_current_user),
+) -> IngestionResponse:
     return await process_ingestion(payload=payload)
 
 
@@ -56,7 +60,10 @@ async def ingest_text(payload: IngestionRequest) -> IngestionResponse:
     response_model=IngestionResponse,
     summary="Upload and ingest a PDF, Word, or Excel file",
 )
-async def ingest_file(file: UploadFile = File(...)) -> IngestionResponse:
+async def ingest_file(
+    file: UploadFile = File(...),
+    _user=Depends(get_current_user),
+) -> IngestionResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -198,7 +205,10 @@ async def health(response: Response) -> dict[str, Any]:
     status_code=201,
     summary="Create a new Qdrant collection",
 )
-async def create_collection(body: CollectionCreateRequest) -> dict[str, Any]:
+async def create_collection(
+    body: CollectionCreateRequest,
+    _user=Depends(get_current_user),
+) -> dict[str, Any]:
     result = CollectionService.create(
         name=body.name,
         vector_size=body.vector_size,
@@ -216,7 +226,10 @@ async def create_collection(body: CollectionCreateRequest) -> dict[str, Any]:
     "/collections/{name}",
     summary="Permanently delete a Qdrant collection and its RecordManager data",
 )
-async def delete_collection(name: str) -> dict[str, Any]:
+async def delete_collection(
+    name: str,
+    _user=Depends(get_current_user),
+) -> dict[str, Any]:
     deleted = CollectionService.delete(name)
     if not deleted:
         raise HTTPException(

@@ -6,14 +6,17 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.routes import router
 from app.core.config import get_settings
+from app.models.user import Base
+from app.services.ingestion import get_engine
 
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+    format="%(asctime)s | %(levelname)-8s | [Stateless Middleware] | %(name)s:%(lineno)d | %(message)s",
 )
 
 app = FastAPI(
@@ -31,11 +34,17 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1/auth")
 
 
 @app.on_event("startup")
 async def on_startup() -> None:
     settings = get_settings()
+
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables created / verified")
+
     logger.info("OmniRAG-Ops startup complete — multi-format ingestion ready")
     logger.info(
         "Stateless Middleware — connecting to remote vector database at %s",
@@ -49,11 +58,12 @@ async def on_startup() -> None:
 
 
 def main() -> None:
+    settings = get_settings()
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
-        log_level="info",
+        host=settings.HOST,
+        port=settings.PORT,
+        log_level=settings.LOG_LEVEL,
         reload=False,
     )
 
