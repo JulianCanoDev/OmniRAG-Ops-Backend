@@ -1,31 +1,36 @@
-# Backend
+# Byte-compiled
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Virtual environments
 .venv/
 venv/
 env/
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# OS
 .DS_Store
 Thumbs.db
+
+# SQLite databases (RecordManager)
 record_manager.db
 *.db
 *.sqlite
 .sqlite3
+
+# Environment secrets
 .env
 .env.local
 .env.production
-.dockerignore
-*.log
 
-# Frontend
-node_modules/
-.next/
-out/
-build/
-dist/
-*.tsbuildinfo
-next-env.d.ts
+# Docker
+.dockerignore
+
+# Logs
+*.log
