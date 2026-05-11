@@ -1,9 +1,26 @@
 import axios from "axios";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+if (!API_URL) {
+  throw new Error(
+    "[OmniRAG-Ops] NEXT_PUBLIC_API_URL is not defined. " +
+      "Create a .env.local file in OmniRAG-Ops-Frontend/ with:\n" +
+      "  NEXT_PUBLIC_API_URL=http://localhost:8000\n" +
+      "The backend API is served on the /api/v1 prefix automatically.",
+  );
+}
+
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api",
+  baseURL: `${API_URL}/api/v1`,
   headers: { "Content-Type": "application/json" },
 });
+
+if (process.env.NODE_ENV === "development") {
+  console.log(
+    `[OmniRAG-Ops] API client configured → base URL: ${apiClient.defaults.baseURL}`,
+  );
+}
 
 apiClient.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
